@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+graphify-out*/
+.DS_Store
+graphify-info.txt
+.env
+*.egg-info/
+dist/
+build/

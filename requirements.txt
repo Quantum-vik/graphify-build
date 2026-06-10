@@ -1,0 +1,7 @@
+# Core — knowledge graph extraction, clustering, and export
+graphifyy>=0.8.32
+
+# Optional — required only for `graphify-build label` (semantic community naming via Claude API)
+# Install with: pip install graphifyy anthropic
+# or:           uv tool install graphifyy --with anthropic
+anthropic>=0.109.0

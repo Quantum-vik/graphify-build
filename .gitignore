@@ -5,6 +5,7 @@ __pycache__/
 graphify-out*/
 .DS_Store
 graphify-info.txt
+graphify-info.text
 .env
 *.egg-info/
 dist/

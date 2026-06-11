@@ -42,13 +42,13 @@ A structured wrapper around [graphifyy](https://pypi.org/project/graphifyy/) tha
 > The graphify skill is a **session tool** — it builds a graph, you use it, you close Claude, it's gone.
 > graphify-build is a **persistent team asset**.
 
-Here's what that means on a real large repo — NimbusVault: 17,256 nodes, 863 communities.
+Here's what that means on a real large repo — 17,000+ nodes, 800+ communities.
 
-### Day 1 — Labeling 863 communities
+### Day 1 — Labeling 800+ communities
 
 | | graphify skill | graphify-build |
 |--|----------------|----------------|
-| How | Claude explores live — runs bash commands to find community data, discovers Python path, reads files. 2–3 min of tool calls | `.graphify_label_prompt.txt` written at build time with all 863 communities pre-embedded. Paste into any LLM — done in one pass |
+| How | Claude explores live — runs bash commands to find community data, discovers Python path, reads files. 2–3 min of tool calls | `.graphify_label_prompt.txt` written at build time with all communities pre-embedded. Paste into any LLM — done in one pass |
 | Labels persist? | No — gone when session closes | Yes — written to `.graphify_labels.json` |
 | Claude routing? | Manual every session | Auto-registered in `~/.claude/CLAUDE.md` |
 
@@ -69,7 +69,7 @@ Here's what that means on a real large repo — NimbusVault: 17,256 nodes, 863 c
 
 | | graphify skill | graphify-build |
 |--|----------------|----------------|
-| Multi-repo | Output lands wherever graphify defaults, manual routing each session | `build DocSearch --name doc` → lands next to first graph, CLAUDE.md auto-gains a new routing row |
+| Multi-repo | Output lands wherever graphify defaults, manual routing each session | `build <repo-2> --name <name-2>` → lands next to first graph, CLAUDE.md auto-gains a new routing row |
 
 > **One thing the skill still does that graphify-build doesn't:**
 > The graphify skill handles mixed-media corpora — PDFs, images, video, papers — via semantic subagents.
@@ -137,16 +137,16 @@ python cli.py <command>
 # Run from your project root (parent of the repos you want to graph)
 
 # 1. Build a graph
-python graphify-build/cli.py build MyRepo --name myrepo
+python graphify-build/cli.py build <repo-name> --name <name>
 
 # 2. Query it
-python graphify-build/cli.py query graphify-out-repos/graphify-out-myrepo/graph.json "how does auth work?"
+python graphify-build/cli.py query graphify-out-repos/graphify-out-<name>/graph.json "how does auth work?"
 
 # 3. Label communities (paste the generated prompt into any LLM)
-cat graphify-out-repos/graphify-out-myrepo/.graphify_label_prompt.txt
+cat graphify-out-repos/graphify-out-<name>/.graphify_label_prompt.txt
 ```
 
-**Output lands in** `graphify-out-repos/graphify-out-myrepo/`:
+**Output lands in** `graphify-out-repos/graphify-out-<name>/`:
 
 ```
 graph.json                 — queryable persistent graph
@@ -166,21 +166,20 @@ cost.json                  — token usage log across all runs
 ### `build` — full graph from scratch
 
 ```bash
-python cli.py build <repo> [--name NAME] [--out DIR] [--base DIR] [--venv DIR ...] [--force]
+python cli.py build <repo-name> [--name NAME] [--out DIR] [--base DIR] [--venv DIR ...] [--force]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--name doc` | Output → `graphify-out-repos/graphify-out-doc/` |
+| `--name <name>` | Output → `graphify-out-repos/graphify-out-<name>/` |
 | `--out /path` | Custom output path (overrides `--name`) |
 | `--base /path` | Working directory (default: cwd) |
-| `--venv myenv` | Virtualenv dirs to exclude (auto-detected if omitted) |
+| `--venv <dir>` | Virtualenv dirs to exclude (auto-detected if omitted) |
 | `--force` | Overwrite `graph.json` even if rebuild has fewer nodes |
 
 ```bash
-python graphify-build/cli.py build NimbusVaultBackend --name nimbus
-python graphify-build/cli.py build DocSearch          --name doc
-python graphify-build/cli.py build enterprise-rag     --name rag
+python graphify-build/cli.py build <repo-1> --name <name-1>
+python graphify-build/cli.py build <repo-2> --name <name-2>
 ```
 
 ---
@@ -188,13 +187,13 @@ python graphify-build/cli.py build enterprise-rag     --name rag
 ### `update` — incremental (changed files only)
 
 ```bash
-python cli.py update <repo> [--name NAME] [--out DIR] [--base DIR] [--force]
+python cli.py update <repo-name> [--name NAME] [--out DIR] [--base DIR] [--force]
 ```
 
 Re-extracts only files changed since last build. Preserves semantic labels. Falls back to full build if no manifest exists.
 
 ```bash
-python graphify-build/cli.py update NimbusVaultBackend --name nimbus
+python graphify-build/cli.py update <repo-name> --name <name>
 ```
 
 ---
@@ -208,9 +207,9 @@ python cli.py query <graph.json> "<question>" [--dfs] [--budget N]
 > Never read `graph.json` directly — files are 50–500 MB. Always use `query`.
 
 ```bash
-python cli.py query graphify-out-repos/graphify-out-nimbus/graph.json "how does auth work?"
-python cli.py query graphify-out-repos/graphify-out-nimbus/graph.json "what calls VaultManagement?" --dfs
-python cli.py query graphify-out-repos/graphify-out-nimbus/graph.json "where is rate limiting?" --budget 3000
+python cli.py query graphify-out-repos/graphify-out-<name>/graph.json "how does auth work?"
+python cli.py query graphify-out-repos/graphify-out-<name>/graph.json "what calls <ServiceName>?" --dfs
+python cli.py query graphify-out-repos/graphify-out-<name>/graph.json "where is rate limiting?" --budget 3000
 ```
 
 ---
@@ -218,7 +217,7 @@ python cli.py query graphify-out-repos/graphify-out-nimbus/graph.json "where is 
 ### `path` — shortest path between two nodes
 
 ```bash
-python cli.py path <graph.json> "NodeA" "NodeB"
+python cli.py path <graph.json> "<NodeA>" "<NodeB>"
 ```
 
 ---
@@ -226,7 +225,7 @@ python cli.py path <graph.json> "NodeA" "NodeB"
 ### `explain` — explain a node and its neighbors
 
 ```bash
-python cli.py explain <graph.json> "FormulaEngine"
+python cli.py explain <graph.json> "<NodeName>"
 ```
 
 ---
@@ -234,13 +233,13 @@ python cli.py explain <graph.json> "FormulaEngine"
 ### `affected` — blast-radius analysis
 
 ```bash
-python cli.py affected <graph.json> "NodeName" [--depth N] [--relations calls,imports]
+python cli.py affected <graph.json> "<NodeName>" [--depth N] [--relations calls,imports]
 ```
 
 Find every node impacted by changing a given node. Essential before touching a god node.
 
 ```bash
-python cli.py affected graphify-out-repos/graphify-out-nimbus/graph.json "OrchestratorRegistry" --depth 2
+python cli.py affected graphify-out-repos/graphify-out-<name>/graph.json "<NodeName>" --depth 2
 ```
 
 ---
@@ -249,10 +248,10 @@ python cli.py affected graphify-out-repos/graphify-out-nimbus/graph.json "Orches
 
 ```bash
 # Mac/Linux
-ANTHROPIC_API_KEY=sk-ant-... python cli.py label <graph_dir>
+ANTHROPIC_API_KEY=sk-ant-... python cli.py label graphify-out-repos/graphify-out-<name>
 
 # Windows (PowerShell)
-$env:ANTHROPIC_API_KEY="sk-ant-..."; python cli.py label <graph_dir>
+$env:ANTHROPIC_API_KEY="sk-ant-..."; python cli.py label graphify-out-repos\graphify-out-<name>
 ```
 
 Calls Claude API in batches of 100 communities. Regenerates `GRAPH_REPORT.md` and `graph.html`.
@@ -262,7 +261,7 @@ Calls Claude API in batches of 100 communities. Regenerates `GRAPH_REPORT.md` an
 ### `cluster` — re-cluster without re-extracting
 
 ```bash
-python cli.py cluster <graph.json>
+python cli.py cluster graphify-out-repos/graphify-out-<name>/graph.json
 ```
 
 Reruns Leiden community detection on the existing graph. Preserves semantic labels for community IDs that survive.
@@ -272,7 +271,7 @@ Reruns Leiden community detection on the existing graph. Preserves semantic labe
 ### `wiki` — agent-crawlable wiki
 
 ```bash
-python cli.py wiki <graph_dir>
+python cli.py wiki graphify-out-repos/graphify-out-<name>
 ```
 
 Generates `wiki/index.md` + one article per community + one per god node. Uses stable IDs from `graph.json` — never re-clusters.
@@ -282,8 +281,8 @@ Generates `wiki/index.md` + one article per community + one per god node. Uses s
 ### `hook` — auto-update on every git commit
 
 ```bash
-python cli.py hook install   <repo_path>
-python cli.py hook uninstall <repo_path>
+python cli.py hook install   <repo-path>
+python cli.py hook uninstall <repo-path>
 ```
 
 ---
@@ -295,7 +294,7 @@ After every build, graphify-build writes `.graphify_label_prompt.txt` — a full
 **Option A — any LLM, no API key:**
 
 ```bash
-cat graphify-out-repos/graphify-out-doc/.graphify_label_prompt.txt
+cat graphify-out-repos/graphify-out-<name>/.graphify_label_prompt.txt
 # paste into Claude Code, ChatGPT, Cursor, Copilot, etc.
 ```
 
@@ -308,7 +307,7 @@ The LLM completes all four steps:
 **Option B — automated via CLI (requires API key):**
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... python graphify-build/cli.py label graphify-out-repos/graphify-out-doc
+ANTHROPIC_API_KEY=sk-ant-... python graphify-build/cli.py label graphify-out-repos/graphify-out-<name>
 ```
 
 Labels survive the next `update` — community IDs that carry over keep their semantic names.
@@ -343,7 +342,7 @@ __pycache__/   *.pyc                # Python bytecode
 
 ```
 graphify-out-repos/
-├── graphify-out-nimbus/
+├── graphify-out-<name>/
 │   ├── graph.json                  # queryable persistent graph
 │   ├── graph.html                  # interactive D3 visualization
 │   ├── GRAPH_REPORT.md             # architecture report
@@ -356,8 +355,8 @@ graphify-out-repos/
 │   ├── manifest.json               # file state for incremental updates
 │   ├── cost.json                   # token usage per run
 │   └── wiki/                       # agent-crawlable wiki (if generated)
-├── graphify-out-doc/
-└── graphify-out-rag/
+├── graphify-out-<name-2>/
+└── graphify-out-<name-3>/
 ```
 
 ---
@@ -372,18 +371,18 @@ docker build -t graphify-build .
 docker run --rm \
   -v /path/to/repos:/repos \
   -v /path/to/graphify-out-repos:/graphs \
-  graphify-build build /repos/MyRepo --out /graphs/graphify-out-myrepo
+  graphify-build build /repos/<repo-name> --out /graphs/graphify-out-<name>
 
 # Query
 docker run --rm \
   -v /path/to/graphify-out-repos:/graphs \
-  graphify-build query /graphs/graphify-out-myrepo/graph.json "how does auth work?"
+  graphify-build query /graphs/graphify-out-<name>/graph.json "how does auth work?"
 
 # Label
 docker run --rm \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -v /path/to/graphify-out-repos:/graphs \
-  graphify-build label /graphs/graphify-out-myrepo
+  graphify-build label /graphs/graphify-out-<name>
 ```
 
 ---
@@ -391,7 +390,7 @@ docker run --rm \
 ## How it works
 
 ```
-build <repo>
+build <repo-name>
   │
   ├──  1. detect()                — discover all code files, flag sensitive skips
   ├──  2. collect_files()         — collect paths respecting .graphifyignore
@@ -422,19 +421,19 @@ from service import query, shortest_path, explain, affected
 from service import load_graph_json, communities_from_graph, node_labels_from_graph
 
 # Build
-build("MyRepo", out_dir="graphify-out-repos/graphify-out-myrepo", base_dir="/path/to/root")
+build("<repo-name>", out_dir="graphify-out-repos/graphify-out-<name>", base_dir="/path/to/root")
 
 # Incremental update
-update("MyRepo", out_dir="graphify-out-repos/graphify-out-myrepo", base_dir="/path/to/root")
+update("<repo-name>", out_dir="graphify-out-repos/graphify-out-<name>", base_dir="/path/to/root")
 
 # Query
-answer = query("graphify-out-repos/graphify-out-myrepo/graph.json", "how does auth work?")
+answer = query("graphify-out-repos/graphify-out-<name>/graph.json", "how does auth work?")
 
 # Blast-radius
-impact = affected("graphify-out-repos/graphify-out-myrepo/graph.json", "AuthMiddleware", depth=3)
+impact = affected("graphify-out-repos/graphify-out-<name>/graph.json", "<NodeName>", depth=3)
 
 # Graph utilities
-raw         = load_graph_json("graphify-out-repos/graphify-out-myrepo/graph.json")
+raw         = load_graph_json("graphify-out-repos/graphify-out-<name>/graph.json")
 communities = communities_from_graph(raw)   # {community_id: [node_id, ...]}
 node_labels = node_labels_from_graph(raw)   # {node_id: human_label}
 ```

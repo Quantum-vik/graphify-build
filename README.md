@@ -44,6 +44,8 @@ python graphify-build/cli.py list
   frontend        8,904     14,551          340  generic          2026-07-01T18:44
 ```
 
+> 🧩 **Don't want to run any of this yourself?** Load the bundled [Claude Code skill](#-claude-code-skill--the-zero-command-path) and just say *"build a knowledge graph of MyBackend"* — it installs prerequisites, finds (or clones) the tooling, builds the graph, and briefs you when it's done.
+
 ---
 
 ## 🧭 The workflow
@@ -136,19 +138,34 @@ On a real large repo — 17,000+ nodes, 800+ communities:
 
 ---
 
-## 🧩 Claude Code Skill — zero-setup path
+## 🧩 Claude Code Skill — the zero-command path
 
-This repo ships a [Claude Code](https://claude.com/claude-code) skill at `.claude/skills/graphify-build/`. Clone, open Claude Code, and say **"build a knowledge graph of ../MyBackend"** — the skill handles everything:
+You don't have to run a single command from this README yourself. This repo ships a [Claude Code](https://claude.com/claude-code) skill at `.claude/skills/graphify-build/` that **loads and drives the entire flow** — every install, clone, build, and verification step above is handled for you.
 
-1. ✅ Checks prerequisites — creates a local `.venv` and installs graphifyy if no interpreter has it
-2. 🔎 Locates the tooling from any directory — and if this repo doesn't exist yet, clones it as a **sibling** of your target repo (never inside it)
-3. 🏗️ Builds the graph (or runs the fast incremental `update` if one exists), verifies it with `list` and a spot-check query
-4. 📣 Briefs you at the end — what was set up, how the pipeline works, where the artifacts live, and the copy-pasteable commands for daily use
+```
+you:    build a knowledge graph of ../MyBackend
+claude: ✅ prerequisites → 🏗️ build → 🔍 verify → 📣 briefing
+```
 
-Make it available from **any** directory:
+What the skill takes care of, end to end:
+
+1. ✅ **Prerequisites** — finds a Python that can import graphify; if none exists, creates a local `.venv` and installs graphifyy into it
+2. 🔎 **Tooling discovery** — works from *any* directory; if this repo isn't on disk yet, it clones it as a **sibling** of your target repo (never inside it)
+3. 🏗️ **Build or update** — full build first time, fast incremental `update` after; verified with `list` and a spot-check query
+4. 📣 **Briefing** — ends by explaining what was set up, how the pipeline works, where every artifact lives, your copy-pasteable daily commands, and offers semantic labeling as the next step
+
+**Use it two ways:**
 
 ```bash
+# A) Inside this repo — the skill auto-loads with the project
+git clone https://github.com/Quantum-vik/graphify-build.git
+cd graphify-build && claude
+> build a knowledge graph of ../MyBackend
+
+# B) From ANY directory — install it once as a personal skill
 cp -r .claude/skills/graphify-build ~/.claude/skills/
+cd ~/work/SomeOtherProject && claude
+> graph this repo        # skill finds/clones the tooling and does the rest
 ```
 
 ---

@@ -20,6 +20,19 @@ from .utils import (
 
 # ── artifact helpers ──────────────────────────────────────────────────────────
 
+def _rel_to_base(path: Path, base: Path) -> Path:
+    """Return `path` relative to `base` when it lives under it, else the absolute path.
+
+    An absolute --out / repo outside the working directory (e.g. another drive on
+    Windows) would make Path.relative_to() raise ValueError; the pipeline works
+    with absolute paths too, so fall back to those.
+    """
+    try:
+        return path.relative_to(base)
+    except ValueError:
+        return path
+
+
 def _load_labels(communities: dict) -> dict[int, str]:
     """
     Return community labels. Always generates fresh 'Community N' labels for AST-only builds.
@@ -28,6 +41,20 @@ def _load_labels(communities: dict) -> dict[int, str]:
     Real semantic names (e.g. 'Database Migrations') require an LLM labeling pass.
     """
     return {c: f"Community {c}" for c in communities}
+
+
+def _merge_saved_labels(out: Path, communities: dict) -> dict[int, str]:
+    """Generic labels overlaid with saved semantic labels for community IDs that survived."""
+    labels      = _load_labels(communities)
+    labels_path = out / ".graphify_labels.json"
+    try:
+        saved = json.loads(labels_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return labels
+    for cid in communities:
+        if str(cid) in saved:
+            labels[cid] = saved[str(cid)]
+    return labels
 
 
 def _save_labels(out: Path, labels: dict[int, str]) -> None:
@@ -54,7 +81,10 @@ def _update_cost(out: Path, n_files: int, input_tokens: int = 0, output_tokens: 
     data: dict = {"runs": [], "total_input_tokens": 0, "total_output_tokens": 0}
     if cost_path.exists():
         try:
-            data = json.loads(cost_path.read_text(encoding="utf-8"))
+            loaded = json.loads(cost_path.read_text(encoding="utf-8"))
+            # Older/partial cost.json schemas may lack "runs" — only adopt a valid list
+            if isinstance(loaded, dict) and isinstance(loaded.get("runs"), list):
+                data["runs"] = loaded["runs"]
         except Exception:
             pass
     data["runs"].append({
@@ -63,9 +93,28 @@ def _update_cost(out: Path, n_files: int, input_tokens: int = 0, output_tokens: 
         "output_tokens": output_tokens,
         "files":         n_files,
     })
-    data["total_input_tokens"]  = sum(r["input_tokens"]  for r in data["runs"])
-    data["total_output_tokens"] = sum(r["output_tokens"] for r in data["runs"])
+    data["total_input_tokens"]  = sum(r.get("input_tokens", 0)  for r in data["runs"] if isinstance(r, dict))
+    data["total_output_tokens"] = sum(r.get("output_tokens", 0) for r in data["runs"] if isinstance(r, dict))
     cost_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def _node_labels(G, out: Path) -> dict[str, str]:
+    """node_id → human-readable label. Prefer the in-memory graph — graph.json
+    can be 50-500 MB and re-parsing it here is pure waste. Fall back to the
+    file only when the graph carries no label attributes."""
+    if any("label" in data for _, data in G.nodes(data=True)):
+        return {n: data.get("label", n) for n, data in G.nodes(data=True)}
+    graph_path = out / "graph.json"
+    if graph_path.exists():
+        return node_labels_from_graph(load_graph_json(graph_path))
+    return {}
+
+
+def _save_stats(out: Path, stats: dict) -> None:
+    (out / "stats.json").write_text(
+        json.dumps({**stats, "updated": datetime.now(timezone.utc).isoformat()}, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _prompt_labeling(out: Path, communities: dict, G, labels: dict) -> None:
@@ -77,11 +126,8 @@ def _prompt_labeling(out: Path, communities: dict, G, labels: dict) -> None:
     est_cost = (n * 50 / 1_000_000 * 3) + (n * 5 / 1_000_000 * 15)
 
     # Pre-extract community data so the LLM prompt is fully self-contained.
-    # Build node label lookup from graph.json for human-readable names.
-    graph_path = out / "graph.json"
-    node_labels: dict[str, str] = {}
-    if graph_path.exists():
-        node_labels = node_labels_from_graph(load_graph_json(graph_path))
+    # Build node label lookup for human-readable names.
+    node_labels = _node_labels(G, out)
 
     # Format each community: show up to 12 human-readable member names.
     community_lines = []
@@ -171,16 +217,13 @@ def _run_labeling(out: Path, communities: dict, G, labels: dict, api_key: str) -
     from graphify.report import generate
     from graphify.export import to_html
 
-    # Build node label lookup from graph.json for richer context
-    graph_path = out / "graph.json"
-    node_labels: dict[str, str] = {}
-    if graph_path.exists():
-        node_labels = node_labels_from_graph(load_graph_json(graph_path))
+    # Build node label lookup for richer context
+    node_labels = _node_labels(G, out)
 
     client      = anthropic.Anthropic(api_key=api_key)
     batch_size  = 100
     cids        = list(communities.keys())
-    new_labels  = dict(labels)   # start from existing
+    new_labels  = {str(k): v for k, v in labels.items()}   # start from existing (str keys — avoids mixed int/str)
     total_in    = 0
     total_out   = 0
     total_batches = (len(cids) + batch_size - 1) // batch_size
@@ -205,16 +248,22 @@ def _run_labeling(out: Path, communities: dict, G, labels: dict, api_key: str) -
 
         resp = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1024,
+            max_tokens=4096,   # 100 labels don't fit in 1024 tokens; truncation corrupts the JSON
             messages=[{"role": "user", "content": prompt}],
         )
         total_in  += resp.usage.input_tokens
         total_out += resp.usage.output_tokens
 
-        text = resp.content[0].text.strip()
+        if resp.stop_reason == "max_tokens":
+            print(f"  WARNING: batch {batch_num} response was truncated — labels may be incomplete")
+
+        text = next((b.text for b in resp.content if b.type == "text"), "").strip()
         m    = re.search(r"\{.*\}", text, re.DOTALL)
         if m:
-            new_labels.update(json.loads(m.group()))
+            try:
+                new_labels.update(json.loads(m.group()))
+            except json.JSONDecodeError:
+                print(f"  WARNING: batch {batch_num} returned invalid JSON — skipping this batch")
 
     # Persist labels
     int_labels = {int(k): v for k, v in new_labels.items()}
@@ -322,8 +371,8 @@ def _run_pipeline(repo: Path, out: Path, *, force: bool = False) -> dict:
         str(out_abs / "manifest.json"),
     )
 
-    # Save raw AST — enables re-cluster without re-extraction
-    (out_abs / ".graphify_ast.json").write_text(json.dumps(ast, indent=2), encoding="utf-8")
+    # Save raw AST — enables re-cluster without re-extraction (compact: machine-only, large repos)
+    (out_abs / ".graphify_ast.json").write_text(json.dumps(ast, separators=(",", ":")), encoding="utf-8")
 
     # Store interpreter for future runs
     (out_abs / ".graphify_python").write_text(sys.executable, encoding="utf-8")
@@ -355,6 +404,7 @@ def _run_pipeline(repo: Path, out: Path, *, force: bool = False) -> dict:
         "files":       len(files),
         "html":        html,
     }
+    _save_stats(out_abs, stats)
     print(
         f"\n  Done: {stats['nodes']:,} nodes · {stats['edges']:,} edges · "
         f"{stats['communities']} communities | HTML: {html}"
@@ -409,7 +459,7 @@ def build(
     saved_cwd = os.getcwd()
     try:
         os.chdir(base)
-        return _run_pipeline(repo.relative_to(base), out.relative_to(base), force=force)
+        return _run_pipeline(_rel_to_base(repo, base), _rel_to_base(out, base), force=force)
     finally:
         os.chdir(saved_cwd)
 
@@ -450,7 +500,7 @@ def update(
     saved_cwd = os.getcwd()
     try:
         os.chdir(base)
-        repo_rel = repo.relative_to(base)
+        repo_rel = _rel_to_base(repo, base)
 
         from graphify.manifest import detect_incremental, load_manifest, save_manifest
         from graphify.detect import detect
@@ -466,12 +516,33 @@ def update(
         print("  Checking for changes via manifest...")
         changed = detect_incremental(repo_rel, str(manifest_path))
 
-        # Find deleted files — in old manifest but no longer on disk
-        old_manifest     = load_manifest(str(manifest_path))
-        current_files    = list(collect_files(repo_rel))
-        current_file_set = {str(f) for f in current_files}
-        deleted          = [f for f in old_manifest if f not in current_file_set]
-        new_or_modified  = [f for cat in changed.get("files", {}).values() for f in cat]
+        current_files = list(collect_files(repo_rel))
+
+        # detect_incremental's "files" lists ALL current files; the actually
+        # new/modified ones are under "new_files" — flattening "files" would
+        # re-extract the entire repo on every update.
+        changed_cats    = changed.get("new_files", changed.get("files", {}))
+        new_or_modified = [f for cat in changed_cats.values() for f in cat]
+
+        # Prefer the library's own deletion report (path forms match its
+        # manifest). Fallback for older graphifyy: diff manifest vs disk using
+        # resolved paths — manifest keys are absolute, collect_files is
+        # relative, so comparing them raw flags every file as deleted.
+        deleted = changed.get("deleted_files")
+        if isinstance(deleted, dict):
+            deleted = [f for cat in deleted.values() for f in cat]
+        elif deleted is None:
+            old_manifest     = load_manifest(str(manifest_path))
+            current_file_set = {str(Path(f).resolve()) for f in current_files}
+            deleted          = [f for f in old_manifest if str(Path(f).resolve()) not in current_file_set]
+
+        # The library reports these as absolute paths, but the graph stores
+        # source_file base-relative with forward slashes ('Repo/pkg/mod.py').
+        # Left absolute, re-extracted chunks merge as DUPLICATE nodes and
+        # prune targets never match — normalize back to base-relative.
+        base_cwd        = Path.cwd()
+        new_or_modified = [str(_rel_to_base(Path(f).resolve(), base_cwd)) for f in new_or_modified]
+        deleted         = [_rel_to_base(Path(f).resolve(), base_cwd).as_posix() for f in deleted]
 
         if not new_or_modified and not deleted:
             print("  Nothing changed — graph is already up to date.\n")
@@ -503,13 +574,7 @@ def update(
         print("  Re-clustering...")
         communities = cluster(G)
         cohesion    = score_all(G, communities)
-        labels      = _load_labels(communities)
-        labels_path = out / ".graphify_labels.json"
-        if labels_path.exists():
-            saved = json.loads(labels_path.read_text(encoding="utf-8"))
-            for cid in communities:
-                if str(cid) in saved:
-                    labels[cid] = saved[str(cid)]
+        labels      = _merge_saved_labels(out, communities)
         gods      = god_nodes(G)
         surprises = surprising_connections(G, communities)
         questions = suggest_questions(G, communities, labels)
@@ -535,7 +600,7 @@ def update(
             G, communities, cohesion, labels, gods, surprises,
             {"total_files": len(current_files), "total_words": detect_result.get("total_words", 0)},
             {"input": 0, "output": 0},
-            str(out.relative_to(base)),
+            str(_rel_to_base(out, base)),
             suggested_questions=questions,
         )
         (out / "GRAPH_REPORT.md").write_text(report, encoding="utf-8")
@@ -557,6 +622,7 @@ def update(
             "diff":          diff["summary"],
             "html":          html,
         }
+        _save_stats(out, stats)
         print(
             f"\n  Done: {stats['nodes']:,} nodes · {stats['edges']:,} edges · "
             f"{stats['communities']} communities | {diff['summary']} | HTML: {html}"
@@ -595,13 +661,7 @@ def cluster_only(graph_json: str | Path) -> dict:
     communities = cluster(G)
     cohesion    = score_all(G, communities)
     # Preserve existing semantic labels for community IDs that survived re-cluster
-    labels = _load_labels(communities)
-    labels_path = out / ".graphify_labels.json"
-    if labels_path.exists():
-        saved = json.loads(labels_path.read_text(encoding="utf-8"))
-        for cid in communities:
-            if str(cid) in saved:
-                labels[cid] = saved[str(cid)]
+    labels    = _merge_saved_labels(out, communities)
     gods      = god_nodes(G)
     surprises = surprising_connections(G, communities)
     questions = suggest_questions(G, communities, labels)
@@ -631,6 +691,7 @@ def cluster_only(graph_json: str | Path) -> dict:
         "communities": len(communities),
         "html":        html,
     }
+    _save_stats(out, stats)
     print(f"  Done: {stats['nodes']:,} nodes · {stats['communities']} communities | HTML: {html}")
     _prompt_labeling(out, communities, G, labels)
     return stats
@@ -699,15 +760,78 @@ def wiki(graph_dir: str | Path) -> int:
     # Use communities already embedded in graph.json — never re-cluster here,
     # Leiden IDs are non-deterministic and would invalidate saved labels.
     communities = communities_from_graph(raw)
-    labels      = _load_labels(communities)
-    # Load saved semantic labels if they exist
-    labels_path = out / ".graphify_labels.json"
-    if labels_path.exists():
-        saved = json.loads(labels_path.read_text(encoding="utf-8"))
-        labels = {int(k): v for k, v in saved.items() if int(k) in communities}
+    labels      = _merge_saved_labels(out, communities)
     gods        = god_nodes(G)
 
     wiki_dir = out / "wiki"
     n = to_wiki(G, communities, wiki_dir, community_labels=labels, god_nodes_data=gods)
     print(f"  {n} articles written → {wiki_dir}/")
     return n
+
+
+def list_graphs(base_dir: str | Path | None = None) -> list[dict]:
+    """
+    List all built graphs under <base>/graphify-out-repos/ with their stats.
+    Reads stats.json and .graphify_labels.json only — works without graphifyy
+    installed (deliberately does NOT call ensure_graphify_importable()).
+    """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd()
+    root = base / "graphify-out-repos"
+    if not root.is_dir():
+        print(f"No graphs found in {root}")
+        return []
+
+    rows = []
+    for d in sorted(root.iterdir()):
+        if not d.is_dir() or not d.name.startswith("graphify-out-"):
+            continue
+        row = {
+            "name":        d.name.replace("graphify-out-", "", 1),
+            "nodes":       None,
+            "edges":       None,
+            "communities": None,
+            "labels":      "-",
+            "updated":     "-",
+        }
+        try:
+            stats = json.loads((d / "stats.json").read_text(encoding="utf-8"))
+            row["nodes"]       = stats.get("nodes")
+            row["edges"]       = stats.get("edges")
+            row["communities"] = stats.get("communities")
+            row["updated"]     = str(stats.get("updated", "-"))[:19]
+        except Exception:
+            pass
+        try:
+            saved = json.loads((d / ".graphify_labels.json").read_text(encoding="utf-8"))
+            if row["communities"] is None:
+                row["communities"] = len(saved)
+            semantic = sum(1 for v in saved.values() if not str(v).startswith("Community "))
+            row["labels"] = "generic" if semantic == 0 else f"{semantic}/{len(saved)} semantic"
+        except Exception:
+            pass
+        rows.append(row)
+
+    if not rows:
+        print(f"No graphs found in {root}")
+        return rows
+
+    def fmt(v, width):
+        if v is None:
+            return f"{'?':>{width}}"
+        return f"{v:>{width},}" if isinstance(v, int) else f"{v:>{width}}"
+
+    print(f"\n  Graphs in {root}\n")
+    print("  {:<24} {:>10} {:>10} {:>12}  {:<16} {:<20}".format(
+        "NAME", "NODES", "EDGES", "COMMUNITIES", "LABELS", "UPDATED"))
+    print("  " + "-" * 96)
+    for r in rows:
+        print("  {:<24} {} {} {}  {:<16} {:<20}".format(
+            r["name"][:24],
+            fmt(r["nodes"], 10),
+            fmt(r["edges"], 10),
+            fmt(r["communities"], 12),
+            r["labels"],
+            r["updated"],
+        ))
+    print()
+    return rows

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -32,8 +33,9 @@ def find_graphify_python() -> str | None:
     which_cmd = "where" if system == "Windows" else "which"
     try:
         r = subprocess.run([which_cmd, "graphify"], capture_output=True, text=True)
-        if r.returncode == 0:
-            bin_path = r.stdout.strip()
+        if r.returncode == 0 and r.stdout.strip():
+            # Windows `where` can return multiple matches — take the first line.
+            bin_path = r.stdout.strip().splitlines()[0].strip()
             with open(bin_path, encoding="utf-8", errors="ignore") as f:
                 first = f.readline().strip()
             if first.startswith("#!"):
@@ -49,6 +51,14 @@ def find_graphify_python() -> str | None:
 def find_graphify_binary() -> str:
     """Return path to the graphify CLI binary."""
     system = platform.system()
+    exe    = "graphify.exe" if system == "Windows" else "graphify"
+
+    # Next to the running interpreter first — covers venvs, conda, and running
+    # cli.py directly with the uv-tool Python on any OS.
+    sibling = Path(sys.executable).parent / exe
+    if sibling.exists():
+        return str(sibling)
+
     if system == "Windows":
         candidates = [
             Path.home() / "AppData" / "Roaming" / "uv" / "tools" / "graphifyy" / "Scripts" / "graphify.exe",
@@ -62,7 +72,9 @@ def find_graphify_binary() -> str:
     for p in candidates:
         if p.exists():
             return str(p)
-    return "graphify"  # hope it's on PATH
+
+    # PATH lookup (shutil.which handles PATHEXT on Windows)
+    return shutil.which("graphify") or "graphify"
 
 
 def ensure_graphify_importable() -> None:

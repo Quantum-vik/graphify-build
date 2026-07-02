@@ -157,6 +157,7 @@ GRAPH_REPORT.md            — architecture report
 .graphify_label_prompt.txt — self-contained LLM prompt for labeling
 manifest.json              — file state for incremental updates
 cost.json                  — token usage log across all runs
+stats.json                 — summary stats for fast listing (read by `list`)
 ```
 
 ---
@@ -287,6 +288,16 @@ python cli.py hook uninstall <repo-path>
 
 ---
 
+### `list` — overview of all built graphs
+
+```bash
+python cli.py list [--base DIR]
+```
+
+Lists every graph under `graphify-out-repos/` in a table — name, nodes, edges, communities, whether labels are semantic or still generic, and last update time. Reads only the small `stats.json` per graph — never the huge `graph.json`. Works without graphifyy installed.
+
+---
+
 ## Semantic Community Labeling
 
 After every build, graphify-build writes `.graphify_label_prompt.txt` — a fully self-contained prompt with all community data, naming rules, node/edge counts, exact regeneration script, and a final step to register the graph in `~/.claude/CLAUDE.md`.
@@ -354,6 +365,7 @@ graphify-out-repos/
 │   ├── .graphify_python            # exact Python interpreter used during build
 │   ├── manifest.json               # file state for incremental updates
 │   ├── cost.json                   # token usage per run
+│   ├── stats.json                  # summary stats for fast listing (used by `list`)
 │   └── wiki/                       # agent-crawlable wiki (if generated)
 ├── graphify-out-<name-2>/
 └── graphify-out-<name-3>/
@@ -401,7 +413,7 @@ build <repo-name>
   ├──  7. score_all()             — cohesion score per community
   ├──  8. god_nodes()             — highest betweenness centrality nodes
   ├──  9. surprising_connections()— cross-community edges
-  ├── 10. save artifacts          — labels, analysis, manifest, AST, cost
+  ├── 10. save artifacts          — labels, analysis, manifest, AST, cost, stats
   ├── 11. generate()              — GRAPH_REPORT.md
   ├── 12. to_json()               — graph.json
   ├── 13. to_html()               — graph.html (skipped for graphs >10k nodes)

@@ -9,7 +9,12 @@ from .utils import find_graphify_binary
 
 def _run(args: list[str]) -> str:
     binary = find_graphify_binary()
-    result = subprocess.run([binary] + args, capture_output=True, text=True)
+    try:
+        result = subprocess.run([binary] + args, capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError(
+            "graphify CLI not found. Install with:  uv tool install graphifyy  (or: pip install graphifyy)"
+        )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     return result.stdout.strip()

@@ -23,6 +23,7 @@ Commands
   affected <graph_json> "NodeName" [--depth N] [--relations calls,imports]
   label    <graph_dir>
   hook     install|uninstall <repo_path>
+  list     [--base DIR]  List all graphs in graphify-out-repos/
 
 Examples (run from your project root)
 ----------------------------------------
@@ -42,13 +43,25 @@ import argparse
 import sys
 
 
+def _safe_console() -> None:
+    # Windows cp1252 consoles/redirects can't encode pipeline chars (━, ·) — degrade gracefully.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> None:
+    _safe_console()
     parser = argparse.ArgumentParser(
         prog="graphify-build",
         description="Build and query graphify knowledge graphs for any repo.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
+    from service import __version__
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # ── build ─────────────────────────────────────────────────────────────────
@@ -122,9 +135,14 @@ def main() -> None:
     p.add_argument("action", choices=["install", "uninstall"])
     p.add_argument("repo",   help="Path to the repo to install hooks in")
 
+    # ── list ──────────────────────────────────────────────────────────────────
+    p = sub.add_parser("list",
+                        help="List all graphs in graphify-out-repos/ (size, labels, last update)")
+    p.add_argument("--base", help="Working directory (default: cwd)")
+
     args = parser.parse_args()
 
-    from service import build, update, cluster_only, wiki, label_communities
+    from service import build, update, cluster_only, wiki, label_communities, list_graphs
     from service.queries import query, shortest_path, explain, affected
     from service.utils import find_graphify_binary
     import subprocess
@@ -174,7 +192,13 @@ def main() -> None:
             )
             sys.exit(result.returncode)
 
-    except (FileNotFoundError, RuntimeError) as e:
+        elif args.cmd == "list":
+            list_graphs(args.base)
+
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        sys.exit(130)
+    except (FileNotFoundError, RuntimeError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 

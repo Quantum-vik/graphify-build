@@ -120,6 +120,23 @@ On a real large repo — 17,000+ nodes, 800+ communities:
 
 ---
 
+## 🧩 Claude Code Skill — zero-setup path
+
+This repo ships a [Claude Code](https://claude.com/claude-code) skill at `.claude/skills/graphify-build/`. Clone, open Claude Code, and say **"build a knowledge graph of ../MyBackend"** — the skill handles everything:
+
+1. ✅ Checks prerequisites — creates a local `.venv` and installs graphifyy if no interpreter has it
+2. 🔎 Locates the tooling from any directory — and if this repo doesn't exist yet, clones it as a **sibling** of your target repo (never inside it)
+3. 🏗️ Builds the graph (or runs the fast incremental `update` if one exists), verifies it with `list` and a spot-check query
+4. 📣 Briefs you at the end — what was set up, how the pipeline works, where the artifacts live, and the copy-pasteable commands for daily use
+
+Make it available from **any** directory:
+
+```bash
+cp -r .claude/skills/graphify-build ~/.claude/skills/
+```
+
+---
+
 ## 📦 Requirements & Installation
 
 **Python 3.10+** and `uv` (recommended) or `pip`:

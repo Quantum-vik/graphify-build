@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ── Python / graphify detection ───────────────────────────────────────────────
@@ -137,6 +139,87 @@ def communities_from_graph(graph_data: dict) -> dict[int, list[str]]:
 def node_labels_from_graph(graph_data: dict) -> dict[str, str]:
     """Return {node_id: human_label} from graph.json nodes."""
     return {n["id"]: n.get("label", n["id"]) for n in graph_data.get("nodes", [])}
+
+
+# ── Claude Code registration ─────────────────────────────────────────────────
+
+_REG_BEGIN = "<!-- graphify-build:graphs:begin -->"
+_REG_END   = "<!-- graphify-build:graphs:end -->"
+
+
+def register_graph_in_claude_md(
+    graph_json: Path,
+    name:       str,
+    n_nodes:    int,
+    n_edges:    int,
+    cli_path:   Path,
+    claude_md:  Path | None = None,
+) -> bool:
+    """
+    Upsert a routing entry for this graph in ~/.claude/CLAUDE.md.
+
+    Claude Code loads that file into every session — without an entry there,
+    Claude never knows the graph exists and keeps grepping files instead of
+    querying. Only this small routing block enters context; graph.json itself
+    is traversed by the `query` subprocess, never read by the LLM.
+
+    Idempotent: one managed marker block, one table row per graph.json path —
+    rebuilding a graph updates its row in place. Everything outside the
+    markers is left untouched. Never raises: returns False on failure so a
+    registration problem can't fail a build.
+
+    Target file override (tests, Docker, non-standard homes): set the
+    GRAPHIFY_CLAUDE_MD environment variable.
+    """
+    try:
+        if claude_md is None:
+            env = os.environ.get("GRAPHIFY_CLAUDE_MD")
+            claude_md = Path(env) if env else Path.home() / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True, exist_ok=True)
+        existing = claude_md.read_text(encoding="utf-8") if claude_md.exists() else ""
+
+        # Collect existing rows from a previous block, keyed by graph.json path
+        rows: dict[str, str] = {}
+        if _REG_BEGIN in existing and _REG_END in existing:
+            block = existing.split(_REG_BEGIN, 1)[1].split(_REG_END, 1)[0]
+            for line in block.splitlines():
+                cells = [c.strip().strip("`") for c in line.strip().strip("|").split("|")]
+                if len(cells) == 4 and cells[1].endswith("graph.json"):
+                    rows[cells[1]] = line.strip()
+
+        gp    = graph_json.resolve().as_posix()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        rows[gp] = f"| {name} | `{gp}` | {n_nodes:,} nodes / {n_edges:,} edges | {today} |"
+
+        block = (
+            f"{_REG_BEGIN}\n"
+            "## Codebase knowledge graphs (managed by graphify-build)\n"
+            "\n"
+            "For questions about how code in these repos works (architecture, call\n"
+            "paths, blast radius, where something is implemented), query the graph\n"
+            "instead of grepping. NEVER read a graph.json directly (files can be\n"
+            "hundreds of MB) — run:\n"
+            "\n"
+            f"    python \"{cli_path.resolve().as_posix()}\" query \"<graph.json>\" \"<question>\"\n"
+            "\n"
+            "Other subcommands: path, explain, affected (blast radius), list.\n"
+            "Tell the user which graph was used to answer.\n"
+            "\n"
+            "| Graph | graph.json | Size | Updated |\n"
+            "|---|---|---|---|\n"
+            + "\n".join(rows[k] for k in sorted(rows)) + "\n"
+            f"{_REG_END}"
+        )
+
+        if _REG_BEGIN in existing and _REG_END in existing:
+            content = existing.split(_REG_BEGIN, 1)[0] + block + existing.split(_REG_END, 1)[1]
+        else:
+            content = existing.rstrip() + ("\n\n" if existing.strip() else "") + block + "\n"
+        claude_md.write_text(content, encoding="utf-8")
+        return True
+    except Exception as e:
+        print(f"  WARNING: could not register graph in CLAUDE.md: {e}")
+        return False
 
 
 # ── .graphifyignore ───────────────────────────────────────────────────────────

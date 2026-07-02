@@ -74,6 +74,8 @@ def main() -> None:
                    help="Virtualenv dir names to exclude (auto-detected if omitted)")
     p.add_argument("--force", action="store_true",
                    help="Overwrite graph.json even if rebuild has fewer nodes")
+    p.add_argument("--no-register", action="store_true",
+                   help="Skip registering the graph in ~/.claude/CLAUDE.md")
 
     # ── update ────────────────────────────────────────────────────────────────
     p = sub.add_parser("update",
@@ -84,6 +86,8 @@ def main() -> None:
     p.add_argument("--base", help="Working directory (default: cwd)")
     p.add_argument("--force", action="store_true",
                    help="Force graph.json overwrite even when node count drops")
+    p.add_argument("--no-register", action="store_true",
+                   help="Skip registering the graph in ~/.claude/CLAUDE.md")
 
     # ── cluster ───────────────────────────────────────────────────────────────
     p = sub.add_parser("cluster",
@@ -157,10 +161,12 @@ def main() -> None:
     try:
         if args.cmd == "build":
             build(args.repo, _resolve_out(args), base_dir=args.base,
-                  venv_dirs=args.venv, force=args.force)
+                  venv_dirs=args.venv, force=args.force,
+                  register=not args.no_register)
 
         elif args.cmd == "update":
-            update(args.repo, _resolve_out(args), base_dir=args.base, force=args.force)
+            update(args.repo, _resolve_out(args), base_dir=args.base, force=args.force,
+                   register=not args.no_register)
 
         elif args.cmd == "cluster":
             cluster_only(args.graph)

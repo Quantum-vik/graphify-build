@@ -49,14 +49,30 @@ python graphify-build/cli.py list
 ## 🧭 The workflow
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'lineColor': '#94a3b8', 'fontSize': '15px'}}}%%
 flowchart LR
     A["📁 Your repo"] -->|"build"| B["🕸️ graph.json<br/>+ report + viz"]
     B -->|"label<br/>(any LLM or Claude API)"| C["🏷️ Semantic labels<br/>'Auth &amp; Permissions'"]
     C -->|"auto-registered"| D["🤖 Claude Code<br/>routes questions here"]
-    A -->|"edit 5 files"| E["update<br/>(seconds)"]
+    A -->|"edit 5 files"| E["⚡ update<br/>(seconds)"]
     E -->|"labels preserved"| B
     B -->|"query · path ·<br/>explain · affected"| F["💬 Answers"]
     B -->|"wiki"| G["📚 Agent-crawlable wiki"]
+
+    classDef repo   fill:#0ea5e9,stroke:#0369a1,color:#ffffff,stroke-width:2px
+    classDef graphn fill:#8b5cf6,stroke:#6d28d9,color:#ffffff,stroke-width:2px
+    classDef label  fill:#f59e0b,stroke:#b45309,color:#1f2937,stroke-width:2px
+    classDef claude fill:#10b981,stroke:#047857,color:#ffffff,stroke-width:2px
+    classDef upd    fill:#f97316,stroke:#c2410c,color:#ffffff,stroke-width:2px
+    classDef ans    fill:#06b6d4,stroke:#0e7490,color:#ffffff,stroke-width:2px
+    classDef wiki   fill:#ec4899,stroke:#be185d,color:#ffffff,stroke-width:2px
+    class A repo
+    class B graphn
+    class C label
+    class D claude
+    class E upd
+    class F ans
+    class G wiki
 ```
 
 Every artifact is a **file on disk** — commit it, share it, clone it. A new teammate gets the labeled graph for free.
@@ -459,6 +475,7 @@ docker run --rm \
 ## ⚙️ How it works
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'lineColor': '#94a3b8', 'fontSize': '15px'}}}%%
 flowchart TD
     A["1 · detect()<br/>discover code files, flag sensitive skips"] --> B["2 · collect_files()<br/>respect .graphifyignore"]
     B --> C["3 · extract()<br/>AST extraction — zero LLM, zero cost"]
@@ -469,6 +486,27 @@ flowchart TD
     G --> H["10 · save artifacts<br/>labels · analysis · manifest · AST · cost · stats"]
     H --> I["11-13 · export<br/>GRAPH_REPORT.md · graph.json · graph.html"]
     I --> J["14 · labeling prompt<br/>.graphify_label_prompt.txt<br/>(+ CLAUDE.md registration)"]
+
+    classDef s1  fill:#0ea5e9,stroke:#0369a1,color:#ffffff,stroke-width:2px
+    classDef s2  fill:#06b6d4,stroke:#0e7490,color:#ffffff,stroke-width:2px
+    classDef s3  fill:#10b981,stroke:#047857,color:#ffffff,stroke-width:2px
+    classDef s4  fill:#84cc16,stroke:#4d7c0f,color:#1f2937,stroke-width:2px
+    classDef s5  fill:#eab308,stroke:#a16207,color:#1f2937,stroke-width:2px
+    classDef s6  fill:#f59e0b,stroke:#b45309,color:#1f2937,stroke-width:2px
+    classDef s7  fill:#f97316,stroke:#c2410c,color:#ffffff,stroke-width:2px
+    classDef s8  fill:#ef4444,stroke:#b91c1c,color:#ffffff,stroke-width:2px
+    classDef s9  fill:#ec4899,stroke:#be185d,color:#ffffff,stroke-width:2px
+    classDef s10 fill:#8b5cf6,stroke:#6d28d9,color:#ffffff,stroke-width:2px
+    class A s1
+    class B s2
+    class C s3
+    class D s4
+    class E s5
+    class F s6
+    class G s7
+    class H s8
+    class I s9
+    class J s10
 ```
 
 `update` runs the same pipeline but steps 1–3 only process **changed** files, using `detect_incremental()` + `build_merge()` to merge into the existing graph — with all reported paths normalized to the graph's own path form, so re-extracted files replace (never duplicate) their old nodes and deleted files are actually pruned.

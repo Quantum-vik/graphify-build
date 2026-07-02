@@ -15,6 +15,7 @@ from .utils import (
     load_graph_json,
     communities_from_graph,
     node_labels_from_graph,
+    register_graph_in_claude_md,
 )
 
 
@@ -115,6 +116,14 @@ def _save_stats(out: Path, stats: dict) -> None:
         json.dumps({**stats, "updated": datetime.now(timezone.utc).isoformat()}, indent=2),
         encoding="utf-8",
     )
+
+
+def _register_graph(out: Path, stats: dict) -> None:
+    """Routing entry in ~/.claude/CLAUDE.md so Claude Code auto-queries this graph."""
+    name     = out.name.replace("graphify-out-", "", 1)
+    cli_path = Path(__file__).resolve().parent.parent / "cli.py"
+    if register_graph_in_claude_md(out / "graph.json", name, stats["nodes"], stats["edges"], cli_path):
+        print("  Registered in ~/.claude/CLAUDE.md — Claude Code will route codebase questions to this graph")
 
 
 def _prompt_labeling(out: Path, communities: dict, G, labels: dict) -> None:
@@ -308,7 +317,7 @@ def _warn_sensitive(detect_result: dict) -> None:
 
 # ── full pipeline ─────────────────────────────────────────────────────────────
 
-def _run_pipeline(repo: Path, out: Path, *, force: bool = False) -> dict:
+def _run_pipeline(repo: Path, out: Path, *, force: bool = False, register: bool = True) -> dict:
     """
     Core pipeline: detect → extract → validate → build → cluster → export all artifacts.
     Must be called with cwd == repo.parent (so .graphifyignore is found).
@@ -405,6 +414,8 @@ def _run_pipeline(repo: Path, out: Path, *, force: bool = False) -> dict:
         "html":        html,
     }
     _save_stats(out_abs, stats)
+    if register:
+        _register_graph(out_abs, stats)
     print(
         f"\n  Done: {stats['nodes']:,} nodes · {stats['edges']:,} edges · "
         f"{stats['communities']} communities | HTML: {html}"
@@ -426,6 +437,7 @@ def build(
     setup_ignore:    bool = True,
     setup_gitignore: bool = True,
     force:           bool = False,
+    register:        bool = True,
 ) -> dict:
     """
     Full build: .graphifyignore setup → detect → AST extract → validate →
@@ -439,6 +451,8 @@ def build(
         setup_ignore:    Write .graphifyignore if missing.
         setup_gitignore: Append graphify entries to .gitignore.
         force:           Overwrite graph.json even if rebuild has fewer nodes.
+        register:        Register the graph in ~/.claude/CLAUDE.md so Claude Code
+                         auto-routes codebase questions to it.
     """
     ensure_graphify_importable()
 
@@ -459,7 +473,8 @@ def build(
     saved_cwd = os.getcwd()
     try:
         os.chdir(base)
-        return _run_pipeline(_rel_to_base(repo, base), _rel_to_base(out, base), force=force)
+        return _run_pipeline(_rel_to_base(repo, base), _rel_to_base(out, base),
+                             force=force, register=register)
     finally:
         os.chdir(saved_cwd)
 
@@ -470,6 +485,7 @@ def update(
     *,
     base_dir: str | Path | None = None,
     force:    bool = False,
+    register: bool = True,
 ) -> dict:
     """
     Incremental update: re-extract only changed/new files, prune deleted-file nodes,
@@ -495,7 +511,8 @@ def update(
     if not graph_path.exists() or not manifest_path.exists():
         print("  No existing graph/manifest found — running full build...")
         return build(repo_path, out_dir, base_dir=base_dir,
-                     setup_ignore=False, setup_gitignore=False, force=force)
+                     setup_ignore=False, setup_gitignore=False, force=force,
+                     register=register)
 
     saved_cwd = os.getcwd()
     try:
@@ -623,6 +640,8 @@ def update(
             "html":          html,
         }
         _save_stats(out, stats)
+        if register:
+            _register_graph(out, stats)
         print(
             f"\n  Done: {stats['nodes']:,} nodes · {stats['edges']:,} edges · "
             f"{stats['communities']} communities | {diff['summary']} | HTML: {html}"

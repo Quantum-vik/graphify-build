@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 *.pyo
+.venv/
 .pytest_cache/
 graphify-out*/
 .DS_Store

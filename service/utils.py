@@ -267,6 +267,22 @@ build/
 out/
 __pycache__/
 *.pyc
+*.pyo
+# Test snapshots
+__snapshots__/
+*.snap
+# Lock files — generated, not source
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+# Binary font/icon files
+*.woff
+*.woff2
+*.ttf
+*.eot
+*.ico
+# graphify output dirs (prevent recursive indexing)
+graphify-out*/
 """
 
 _GITIGNORE_LINES = ["graphify-out*/", ".graphifyignore"]
